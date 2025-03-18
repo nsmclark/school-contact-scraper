@@ -3,6 +3,7 @@ from flask import Flask, jsonify
 import requests
 from bs4 import BeautifulSoup
 import time
+import re
 
 app = Flask(__name__)
 
@@ -19,44 +20,57 @@ SCHOOLS = {
 }
 
 # ✅ Titles to search for
-TARGET_TITLES = ["Head of School", "Headmaster", "Principal", "Director of Admissions", "Admissions Director", "Marketing Director", "Director of Marketing"]
+TARGET_TITLES = [
+    "Head of School", "Headmaster", "Principal", 
+    "Director of Admissions", "Admissions Director", 
+    "Marketing Director", "Director of Marketing"
+]
 
-# ✅ Function to extract contact details
+# ✅ Function to extract faculty contact details
 def extract_contacts(school_name, url):
     headers = {"User-Agent": "Mozilla/5.0"}
     
     try:
         response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
     except requests.exceptions.RequestException as e:
-        return {"error": f"Error accessing {url}: {e}"}
+        return [{"error": f"Error accessing {url}: {e}"}]
 
-    if response.status_code != 200:
-        return {"error": f"Failed to access {url} - Status Code: {response.status_code}"}
-    
     soup = BeautifulSoup(response.text, "html.parser")
     contacts = []
 
-    for person in soup.find_all(["div", "li", "p", "tr"]):
-        text = person.get_text(separator=" ").strip()
-        email = None
-        if "@" in text:
-            words = text.split()
-            for word in words:
-                if "@" in word and "." in word:
-                    email = word.strip()
+    # ✅ Only search inside specific sections (avoids menus)
+    faculty_sections = soup.find_all(["table", "ul", "ol", "div"], class_=lambda x: x and "staff" in x.lower())
+
+    if not faculty_sections:
+        faculty_sections = soup.find_all(["div", "p", "tr"])  # Fallback search
+
+    for section in faculty_sections:
+        for person in section.find_all(["tr", "li", "p", "div"]):  # Check inside rows or lists
+            text = person.get_text(separator=" ").strip()
+
+            # ✅ Extract emails using regex
+            email = None
+            email_match = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", text)
+            if email_match:
+                email = email_match.group(0)
+
+            # ✅ Check if the person's title matches the target roles
+            for title in TARGET_TITLES:
+                if title.lower() in text.lower():
+                    name = text.split(title)[0].strip()
+                    contacts.append({
+                        "School Name": school_name,
+                        "Contact Name": name,
+                        "Title": title,
+                        "Email": email if email else "Not Found",
+                        "Source Link": url
+                    })
                     break
-        
-        for title in TARGET_TITLES:
-            if title.lower() in text.lower():
-                name = text.split(title)[0].strip()
-                contacts.append({
-                    "School Name": school_name,
-                    "Contact Name": name,
-                    "Title": title,
-                    "Email": email if email else "Not Found",
-                    "Source Link": url
-                })
-                break
+
+    # ✅ If no contacts were found, return an error message
+    if not contacts:
+        contacts.append({"error": f"No valid faculty contacts found on {url}"})
 
     return contacts
 
@@ -75,4 +89,3 @@ def scrape_schools():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))  
     app.run(host="0.0.0.0", port=port)
-
