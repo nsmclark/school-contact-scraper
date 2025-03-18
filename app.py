@@ -15,7 +15,6 @@ def scrape_faculty_contacts():
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
         response = requests.get(url, headers=headers, timeout=10)
 
-        # If blocked or error page
         if response.status_code != 200:
             return jsonify({"error": f"Request failed with status {response.status_code}"}), response.status_code
         
@@ -23,13 +22,14 @@ def scrape_faculty_contacts():
 
         contacts = []
 
-        # Try different possible structures (divs, tables, paragraphs)
         faculty_sections = soup.find_all(["div", "section", "table", "tr", "td", "p"])
 
         for section in faculty_sections:
             name = section.find(["h2", "h3", "strong", "b"])
             email = section.find("a", href=lambda href: href and "mailto:" in href)
-            title = section.find(["span", "td", "p"], class_=lambda x: x and "title" in x.lower() or "position" in x.lower())
+
+            # Handle missing title gracefully
+            title = section.find(["span", "td", "p"], class_=lambda x: x and isinstance(x, str) and "title" in x.lower() or "position" in x.lower()) if section else None
 
             if name and email:
                 contacts.append({
@@ -39,7 +39,6 @@ def scrape_faculty_contacts():
                     "source": url
                 })
 
-        # Log errors instead of breaking the server
         if not contacts:
             return jsonify({"error": "No faculty contacts found"}), 404
 
