@@ -12,42 +12,47 @@ def scrape_faculty_contacts():
         return jsonify({"error": "No URL provided"}), 400
 
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/109.0'}
         response = requests.get(url, headers=headers, timeout=10)
 
         if response.status_code != 200:
-            return jsonify({"error": f"Request failed with status {response.status_code}"}), response.status_code
-        
+            return jsonify({"error": f"Failed to fetch the webpage. Status code: {response.status_code}"}), 400
+
         soup = BeautifulSoup(response.text, 'html.parser')
 
-        contacts = []
+        faculty_list = []
 
-        faculty_sections = soup.find_all(["div", "section", "table", "tr", "td", "p"])
+        # Search for relevant elements in a safer way
+        for tag in soup.find_all(['p', 'div', 'span', 'a', 'li']):
+            text = tag.get_text(strip=True) if tag else None
 
-        for section in faculty_sections:
-            name = section.find(["h2", "h3", "strong", "b"])
-            email = section.find("a", href=lambda href: href and "mailto:" in href)
+            if text:
+                # Check if the tag contains relevant faculty/staff information
+                if any(keyword in text.lower() for keyword in ["head of school", "principal", "director of admissions", "marketing director"]):
+                    email = None
+                    
+                    # Try to extract email from <a> tag (if present)
+                    email_tag = tag.find('a', href=True)
+                    if email_tag and "mailto:" in email_tag['href']:
+                        email = email_tag['href'].replace("mailto:", "")
 
-            # Handle missing title gracefully
-            title = section.find(["span", "td", "p"], class_=lambda x: x and isinstance(x, str) and "title" in x.lower() or "position" in x.lower()) if section else None
+                    faculty_list.append({
+                        "Name": text,
+                        "Email": email if email else "Not Found",
+                        "Source": url
+                    })
 
-            if name and email:
-                contacts.append({
-                    "name": name.get_text(strip=True),
-                    "email": email["href"].replace("mailto:", "").strip(),
-                    "title": title.get_text(strip=True) if title else "Not Found",
-                    "source": url
-                })
+        # If no faculty contacts were found
+        if not faculty_list:
+            return jsonify({"error": "No faculty contact details found on the page"}), 404
 
-        if not contacts:
-            return jsonify({"error": "No faculty contacts found"}), 404
+        return jsonify(faculty_list)
 
-        return jsonify(contacts)
-
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Request failed: {str(e)}"}), 500
+    except requests.RequestException as e:
+        return jsonify({"error": f"Request error: {str(e)}"}), 500
     except Exception as e:
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
