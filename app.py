@@ -64,5 +64,8 @@ def scrape_schools():
 
     return jsonify(all_contacts)
 
+import os  # Ensure this is at the top of your file
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 10000))  # Uses Render's assigned PORT
+    app.run(host="0.0.0.0", port=port)
