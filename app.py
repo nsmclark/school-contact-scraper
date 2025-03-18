@@ -1,62 +1,64 @@
-from flask import Flask, request, jsonify
+import os
 import requests
+from flask import Flask, request, jsonify
 from bs4 import BeautifulSoup
-import re
 
 app = Flask(__name__)
 
-def extract_emails(url):
-    """Scrapes the given URL and extracts email addresses."""
+# Define the faculty titles to search for
+FACULTY_TITLES = [
+    "Head of School", "Headmaster", "Principal", "Director of Admissions",
+    "Admissions Director", "Marketing Director", "Director of Marketing"
+]
+
+def scrape_faculty_contacts(directory_url):
+    """Scrapes the faculty directory page for contact names and emails."""
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(directory_url, headers=headers)
+        response.raise_for_status()
 
-        if response.status_code != 200:
-            return {"error": f"Error accessing {url}: {response.status_code} {response.reason}"}
+        soup = BeautifulSoup(response.text, "html.parser")
+        faculty_list = []
 
-        soup = BeautifulSoup(response.text, 'html.parser')
-        emails = set()
+        # Look for common patterns (tables, divs, spans, etc.)
+        for item in soup.find_all(["tr", "div", "span", "li"]):
+            text = item.get_text(separator=" ", strip=True)
+            email = None
 
-        # Extract emails from <a href="mailto:EMAIL">
-        for a_tag in soup.find_all('a', href=True):
-            if 'mailto:' in a_tag['href']:
-                email = a_tag['href'].replace('mailto:', '').strip()
-                emails.add(email)
+            # Extract email if present
+            email_tag = item.find("a", href=True)
+            if email_tag and "mailto:" in email_tag["href"]:
+                email = email_tag["href"].replace("mailto:", "")
 
-        # Extract emails from plain text
-        email_pattern = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
-        text_emails = re.findall(email_pattern, soup.get_text())
-        emails.update(text_emails)
+            # Check if any faculty title is mentioned
+            if any(title.lower() in text.lower() for title in FACULTY_TITLES):
+                faculty_list.append({
+                    "Contact Name": text,
+                    "Title": [title for title in FACULTY_TITLES if title.lower() in text.lower()],
+                    "Email": email or "Not Found",
+                    "Source Link": directory_url
+                })
 
-        # Debugging: Log scraped data
-        print(f"Scraped from {url}: {emails}")
+        return faculty_list if faculty_list else [{"error": f"No faculty contacts found on {directory_url}"}]
 
-        if not emails:
-            return {"error": f"No faculty contact details found on {url}"}
-        
-        return list(emails)
+    except requests.exceptions.RequestException as e:
+        return [{"error": f"Error accessing {directory_url}: {str(e)}"}]
 
-    except Exception as e:
-        return {"error": f"Unexpected error: {str(e)}"}
 
-@app.route('/scrape', methods=['POST'])
-def scrape_faculty_contacts():
-    """API endpoint to scrape faculty emails from provided URLs."""
-    try:
-        data = request.json
-        if not data or 'urls' not in data:
-            return jsonify({"error": "Missing 'urls' in request payload"}), 400
-        
-        urls = data['urls']
-        results = {}
+@app.route("/scrape", methods=["POST"])
+def scrape():
+    """Receives a faculty directory URL and scrapes contact details."""
+    data = request.json
+    directory_url = data.get("directory_url")
 
-        for url in urls:
-            results[url] = extract_emails(url)
+    if not directory_url:
+        return jsonify({"error": "No directory URL provided"}), 400
 
-        return jsonify(results)
+    result = scrape_faculty_contacts(directory_url)
+    return jsonify(result)
 
-    except Exception as e:
-        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
