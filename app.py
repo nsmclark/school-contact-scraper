@@ -1,5 +1,5 @@
 import os  
-from flask import Flask, jsonify
+from flask import Flask, request, jsonify
 import requests
 from bs4 import BeautifulSoup
 import time
@@ -12,13 +12,6 @@ app = Flask(__name__)
 def home():
     return "✅ School Contact Scraper is Running!"
 
-# ✅ List of school faculty directory URLs
-SCHOOLS = {
-    "Asheville Christian Academy": "https://www.ashevillechristian.org/about-us/faculty-staff/",
-    "Ben Lippen School": "https://www.benlippen.com/faculty-staff/",
-    "Brentwood Academy": "https://www.brentwoodacademy.com/about/faculty-staff"
-}
-
 # ✅ Titles to search for
 TARGET_TITLES = [
     "Head of School", "Headmaster", "Principal", 
@@ -26,7 +19,7 @@ TARGET_TITLES = [
     "Marketing Director", "Director of Marketing"
 ]
 
-# ✅ Function to extract faculty contact details
+# ✅ Extract faculty details properly
 def extract_contacts(school_name, url):
     headers = {"User-Agent": "Mozilla/5.0"}
     
@@ -39,7 +32,7 @@ def extract_contacts(school_name, url):
     soup = BeautifulSoup(response.text, "html.parser")
     contacts = []
 
-    # ✅ Only search inside specific sections (avoids menus)
+    # ✅ Search inside faculty directory containers
     faculty_sections = soup.find_all(["table", "ul", "ol", "div"], class_=lambda x: x and "staff" in x.lower())
 
     if not faculty_sections:
@@ -49,13 +42,11 @@ def extract_contacts(school_name, url):
         for person in section.find_all(["tr", "li", "p", "div"]):  # Check inside rows or lists
             text = person.get_text(separator=" ").strip()
 
-            # ✅ Extract emails using regex
-            email = None
+            # ✅ Extract email using regex
             email_match = re.search(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", text)
-            if email_match:
-                email = email_match.group(0)
+            email = email_match.group(0) if email_match else "Not Found"
 
-            # ✅ Check if the person's title matches the target roles
+            # ✅ Check if the person's title matches target roles
             for title in TARGET_TITLES:
                 if title.lower() in text.lower():
                     name = text.split(title)[0].strip()
@@ -63,23 +54,33 @@ def extract_contacts(school_name, url):
                         "School Name": school_name,
                         "Contact Name": name,
                         "Title": title,
-                        "Email": email if email else "Not Found",
+                        "Email": email,
                         "Source Link": url
                     })
                     break
 
-    # ✅ If no contacts were found, return an error message
+    # ✅ If no contacts found, return an error
     if not contacts:
         contacts.append({"error": f"No valid faculty contacts found on {url}"})
 
     return contacts
 
-# ✅ Scraping route
-@app.route("/scrape", methods=["GET"])
+# ✅ New Scraping Route That Accepts Dynamic Websites
+@app.route("/scrape", methods=["POST"])
 def scrape_schools():
+    data = request.json  # Read JSON input from the GPT request
+    if not data or "schools" not in data:
+        return jsonify({"error": "Please provide a list of school names and URLs in JSON format."}), 400
+
     all_contacts = []
-    for school, url in SCHOOLS.items():
-        contacts = extract_contacts(school, url)
+    for school in data["schools"]:  # Loop through user-provided schools
+        name = school.get("name")
+        url = school.get("url")
+
+        if not name or not url:
+            continue
+
+        contacts = extract_contacts(name, url)
         all_contacts.extend(contacts)
         time.sleep(2)  # Delay to avoid blocking
 
@@ -89,3 +90,4 @@ def scrape_schools():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))  
     app.run(host="0.0.0.0", port=port)
+
