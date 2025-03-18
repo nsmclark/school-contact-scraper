@@ -1,21 +1,27 @@
-from flask import Flask, request, jsonify
+import os  
+from flask import Flask, jsonify
 import requests
 from bs4 import BeautifulSoup
 import time
 
 app = Flask(__name__)
 
-# List of school faculty directory URLs
+# ✅ Root route to confirm app is running
+@app.route("/", methods=["GET"])
+def home():
+    return "✅ School Contact Scraper is Running!"
+
+# ✅ List of school faculty directory URLs
 SCHOOLS = {
     "Asheville Christian Academy": "https://www.ashevillechristian.org/about-us/faculty-staff/",
     "Ben Lippen School": "https://www.benlippen.com/faculty-staff/",
     "Brentwood Academy": "https://www.brentwoodacademy.com/about/faculty-staff"
 }
 
-# Titles to search for
+# ✅ Titles to search for
 TARGET_TITLES = ["Head of School", "Headmaster", "Principal", "Director of Admissions", "Admissions Director", "Marketing Director", "Director of Marketing"]
 
-# Function to extract contact details
+# ✅ Function to extract contact details
 def extract_contacts(school_name, url):
     headers = {"User-Agent": "Mozilla/5.0"}
     
@@ -54,6 +60,7 @@ def extract_contacts(school_name, url):
 
     return contacts
 
+# ✅ Scraping route
 @app.route("/scrape", methods=["GET"])
 def scrape_schools():
     all_contacts = []
@@ -64,8 +71,8 @@ def scrape_schools():
 
     return jsonify(all_contacts)
 
-import os  # Ensure this is at the top of your file
-
+# ✅ Ensure Render correctly uses the assigned port
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))  # Uses Render's assigned PORT
+    port = int(os.environ.get("PORT", 10000))  
     app.run(host="0.0.0.0", port=port)
+
