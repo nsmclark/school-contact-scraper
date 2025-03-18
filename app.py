@@ -1,67 +1,62 @@
-import os
-import requests
 from flask import Flask, request, jsonify
+import requests
 from bs4 import BeautifulSoup
+import re
 
 app = Flask(__name__)
 
-# Function to scrape faculty/staff directory
-def scrape_faculty_directory(url):
+def extract_emails(url):
+    """Scrapes the given URL and extracts email addresses."""
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, headers=headers, timeout=10)
-        
+
         if response.status_code != 200:
             return {"error": f"Error accessing {url}: {response.status_code} {response.reason}"}
-        
+
         soup = BeautifulSoup(response.text, 'html.parser')
+        emails = set()
 
-        faculty_list = []
-        for element in soup.find_all(["p", "div", "li", "span", "tr"]):
-            text = element.get_text(separator=" ", strip=True)
-            
-            if text and ("@" in text and "." in text):  # Detect emails in text
-                parts = text.split()
-                email = next((word for word in parts if "@" in word and "." in word), "Not Found")
-                name = " ".join(parts[:2]) if len(parts) > 2 else "Not Found"
-                title = " ".join(parts[2:]) if len(parts) > 3 else "Not Found"
+        # Extract emails from <a href="mailto:EMAIL">
+        for a_tag in soup.find_all('a', href=True):
+            if 'mailto:' in a_tag['href']:
+                email = a_tag['href'].replace('mailto:', '').strip()
+                emails.add(email)
 
-                faculty_list.append({
-                    "Contact Name": name,
-                    "Title": title,
-                    "Email": email,
-                    "Source Link": url
-                })
-        
-        if not faculty_list:
+        # Extract emails from plain text
+        email_pattern = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+        text_emails = re.findall(email_pattern, soup.get_text())
+        emails.update(text_emails)
+
+        # Debugging: Log scraped data
+        print(f"Scraped from {url}: {emails}")
+
+        if not emails:
             return {"error": f"No faculty contact details found on {url}"}
         
-        return faculty_list
+        return list(emails)
 
     except Exception as e:
         return {"error": f"Unexpected error: {str(e)}"}
 
-# API Endpoint to scrape multiple URLs
 @app.route('/scrape', methods=['POST'])
-def scrape_multiple():
+def scrape_faculty_contacts():
+    """API endpoint to scrape faculty emails from provided URLs."""
     try:
-        data = request.get_json()
-        urls = data.get("urls", [])
-
-        if not urls or not isinstance(urls, list):
-            return jsonify({"error": "Invalid or missing 'urls' parameter. Must be a list of URLs."}), 400
+        data = request.json
+        if not data or 'urls' not in data:
+            return jsonify({"error": "Missing 'urls' in request payload"}), 400
         
-        results = []
+        urls = data['urls']
+        results = {}
+
         for url in urls:
-            result = scrape_faculty_directory(url)
-            results.append(result)
+            results[url] = extract_emails(url)
 
         return jsonify(results)
 
     except Exception as e:
-        return jsonify({"error": f"Unexpected server error: {str(e)}"}), 500
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
-# Run the app with the correct port
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))  # Use Render's PORT if available
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=5000)
